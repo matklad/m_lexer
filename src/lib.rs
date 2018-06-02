@@ -87,8 +87,17 @@ impl Lexer {
             actual += &format!("{:?} {}\n", text, t.kind.0);
             len = end;
         }
+        let expected = expected.trim();
+        let actual = actual.trim();
 
-        assert_eq!(expected.trim(), actual.trim());
+        assert_eq!(
+            expected, actual,
+            "\nExpected:\n\n\
+            {}\n\n\
+            Actual:\n\n\
+            {}\n\n",
+            expected, actual,
+        );
     }
 
     fn valid_token(&self, input: &str) -> Option<(Token)> {
@@ -188,24 +197,61 @@ fn tokenize_longest_first_wins() {
     );
 }
 
-//#[test]
-//fn extern_rule() {
-//    const WS: TokenKind = TokenKind(1);
-//    const WORD: TokenKind = TokenKind(2);
-//    const COMMENT: TokenKind = TokenKind(3);
-//
-//    let lexer = {
-//        let mut builder = LexerBuilder::new();
-//        builder.rules(&[
-//            (WS, r"\s+"),
-//            (WORD, r"\w+"),
-//        ]);
-//        builder.external_rule(COMMENT, r"\(\*", |input| None)
-//    };
-//
-//
-//    let lexer = builder.build();
-//
-//    let input = "foo (* (* bar *) *) baz *) (*";
-//
-//}
+#[test]
+fn extern_rule() {
+    const WS: TokenKind = TokenKind(1);
+    const WORD: TokenKind = TokenKind(2);
+    const COMMENT: TokenKind = TokenKind(3);
+
+    let lexer = {
+        let mut builder = LexerBuilder::new();
+        builder.tokens(&[
+            (WS, r"\s+"),
+            (WORD, r"\w+"),
+        ]);
+        builder.rule(COMMENT, r"\(\*", Some(Box::new(|input| nested_comment(input))));
+        builder.build()
+    };
+
+    lexer.test(
+        "foo (* (* bar *) *) baz *) (*",
+        r#"
+"foo" 2
+" " 1
+"(* (* bar *) *)" 3
+" " 1
+"baz" 2
+" " 1
+"*" 0
+")" 0
+" " 1
+"(*" 3"#
+    );
+
+    fn nested_comment(input: &str) -> Option<usize> {
+        assert!(input.starts_with("(*"));
+        let mut level = 0;
+        let mut len = 0;
+
+        let mut rest = input;
+        loop {
+            let bite = match rest.chars().next() {
+                None => return Some(len),
+                _ if rest.starts_with("(*") => {
+                    level += 1;
+                    2
+                }
+                _ if rest.starts_with("*)") => {
+                    level -= 1;
+                    2
+                }
+                Some(c) => c.len_utf8(),
+            };
+            len += bite;
+            rest = &rest[bite..];
+            if level == 0 {
+                return Some(len);
+            }
+        }
+    }
+}
