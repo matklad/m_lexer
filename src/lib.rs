@@ -3,7 +3,7 @@ extern crate regex;
 use regex::Regex;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-pub struct TokenKind(pub u32);
+pub struct TokenKind(pub u16);
 
 pub const ERROR: TokenKind = TokenKind(0);
 
@@ -16,6 +16,7 @@ pub struct Token {
 pub type ExternRule = Box<Fn(&str) -> Option<usize> + Send + Sync>;
 
 pub struct Lexer {
+    error_token: TokenKind,
     rules: Vec<Rule>,
 }
 
@@ -26,6 +27,7 @@ pub struct Rule {
 }
 
 pub struct LexerBuilder {
+    error_token: Option<TokenKind>,
     rules: Vec<Rule>,
 }
 
@@ -60,7 +62,7 @@ impl Lexer {
                 assert!(len > 0, "external token {:?} has length zero", kind);
                 Token { kind, len }
             } else {
-                Token { kind: ERROR, len: first_char_len }
+                Token { kind: self.error_token, len: first_char_len }
             }
         }
     }
@@ -129,38 +131,49 @@ impl Lexer {
             }
         }
         assert!(0 < len && len <= input.len());
-        Token { kind: ERROR, len }
+        Token { kind: self.error_token, len }
     }
 }
 
 impl LexerBuilder {
     pub fn new() -> LexerBuilder {
-        LexerBuilder { rules: Vec::new() }
+        LexerBuilder { error_token: None, rules: Vec::new() }
     }
 
-    pub fn token(&mut self, kind: TokenKind, re: &str) {
-        self.rule(kind, re, None);
+    pub fn error_token(mut self, kind: TokenKind) -> Self {
+        self.error_token = Some(kind);
+        self
     }
 
-    pub fn tokens(&mut self, rules: &[(TokenKind, &str)]) {
+    pub fn token(self, kind: TokenKind, re: &str) -> Self {
+        self.rule(kind, re, None)
+    }
+
+    pub fn tokens(self, rules: &[(TokenKind, &str)]) -> Self {
+        let mut this = self;
         for &(kind, re) in rules {
-            self.token(kind, re)
+            this = this.token(kind, re);
         }
+        this
     }
 
-    pub fn external_token<F>(&mut self, kind: TokenKind, re: &str, f: F)
+    pub fn external_token<F>(self, kind: TokenKind, re: &str, f: F) -> Self
         where F: Fn(&str) -> Option<usize> + 'static + Send + Sync
     {
         self.rule(kind, re, Some(Box::new(f)))
     }
 
-    pub fn rule(&mut self, kind: TokenKind, re: &str, f: Option<ExternRule>) {
+    pub fn rule(mut self, kind: TokenKind, re: &str, f: Option<ExternRule>) -> Self {
         let rule = Rule { kind, re: parse_re(re), f };
         self.rules.push(rule);
+        self
     }
 
     pub fn build(self) -> Lexer {
-        Lexer { rules: self.rules }
+        let error_token = self.error_token.unwrap_or_else(|| {
+            panic!("`error_token` is not set")
+        });
+        Lexer { error_token, rules: self.rules }
     }
 }
 
@@ -171,21 +184,21 @@ fn parse_re(re: &str) -> Regex {
 
 #[test]
 fn tokenize_longest_first_wins() {
+    const ERROR: TokenKind = TokenKind(0);
     const WS: TokenKind = TokenKind(1);
     const FOO: TokenKind = TokenKind(10);
     const WORD: TokenKind = TokenKind(11);
     const FOOBAR: TokenKind = TokenKind(12);
 
-    let lexer = {
-        let mut builder = LexerBuilder::new();
-        builder.tokens(&[
+    let lexer = LexerBuilder::new()
+        .error_token(ERROR)
+        .tokens(&[
             (WS, r"\s+"),
             (FOO, "foo"),
             (WORD, r"\w+"),
             (FOOBAR, "foobar"),
-        ]);
-        builder.build()
-    };
+        ])
+        .build();
     lexer.test(
         "foo foob foobar",
         r#"
@@ -199,19 +212,19 @@ fn tokenize_longest_first_wins() {
 
 #[test]
 fn extern_rule() {
+    const ERROR: TokenKind = TokenKind(0);
     const WS: TokenKind = TokenKind(1);
     const WORD: TokenKind = TokenKind(2);
     const COMMENT: TokenKind = TokenKind(3);
 
-    let lexer = {
-        let mut builder = LexerBuilder::new();
-        builder.tokens(&[
+    let lexer = LexerBuilder::new()
+        .error_token(ERROR)
+        .tokens(&[
             (WS, r"\s+"),
             (WORD, r"\w+"),
-        ]);
-        builder.rule(COMMENT, r"\(\*", Some(Box::new(|input| nested_comment(input))));
-        builder.build()
-    };
+        ])
+        .rule(COMMENT, r"\(\*", Some(Box::new(|input| nested_comment(input))))
+        .build();
 
     lexer.test(
         "foo (* (* bar *) *) baz *) (*",
@@ -225,7 +238,7 @@ fn extern_rule() {
 "*" 0
 ")" 0
 " " 1
-"(*" 3"#
+"(*" 3"#,
     );
 
     fn nested_comment(input: &str) -> Option<usize> {
