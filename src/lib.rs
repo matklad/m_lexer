@@ -5,8 +5,6 @@ use regex::Regex;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct TokenKind(pub u16);
 
-pub const ERROR: TokenKind = TokenKind(0);
-
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Token {
     pub kind: TokenKind,
@@ -36,35 +34,7 @@ impl Lexer {
         assert!(!input.is_empty(), "next_token should not be called with empty input");
         self.valid_token(input).unwrap_or_else(|| {
             self.invalid_token(input)
-        });
-        let first_char_len = match input.chars().next() {
-            Some(c) => c.len_utf8(),
-            None => panic!()
-        };
-
-        let longest_match = self.rules.iter().rev()
-            .filter_map(|rule| {
-                let m = rule.re.find(input)?;
-                Some((m.end(), rule))
-            })
-            .max_by_key(|&(len, _)| len);
-
-        let (len, kind, f) = match longest_match {
-            Some((len, rule)) => (len, rule.kind, &rule.f),
-            None => return Token { kind: ERROR, len: first_char_len },
-        };
-
-        assert!(len > 0, "token {:?} has length zero", kind);
-
-        match f {
-            None => Token { kind, len },
-            Some(f) => if let Some(len) = f(input) {
-                assert!(len > 0, "external token {:?} has length zero", kind);
-                Token { kind, len }
-            } else {
-                Token { kind: self.error_token, len: first_char_len }
-            }
-        }
+        })
     }
 
     pub fn tokenize(&self, input: &str) -> Vec<Token> {
@@ -235,8 +205,7 @@ fn extern_rule() {
 " " 1
 "baz" 2
 " " 1
-"*" 0
-")" 0
+"*)" 0
 " " 1
 "(*" 3"#,
     );
