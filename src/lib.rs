@@ -2,16 +2,16 @@ extern crate regex;
 
 use regex::Regex;
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TokenKind(pub u16);
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Token {
     pub kind: TokenKind,
     pub len: usize,
 }
 
-pub type ExternRule = Box<Fn(&str) -> Option<usize> + Send + Sync>;
+pub type ExternRule = Box<dyn Fn(&str) -> Option<usize> + Send + Sync>;
 
 pub struct Lexer {
     error_token: TokenKind,
@@ -72,7 +72,7 @@ impl Lexer {
         );
     }
 
-    fn valid_token(&self, input: &str) -> Option<(Token)> {
+    fn valid_token(&self, input: &str) -> Option<Token> {
         let longest_match = self.rules.iter().rev()
             .filter_map(|rule| {
                 let m = rule.re.find(input)?;
