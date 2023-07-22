@@ -1,6 +1,8 @@
-extern crate regex;
-
+#[cfg(not(feature = "lite"))]
 use regex::Regex;
+
+#[cfg(feature = "lite")]
+use regex_lite::Regex;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TokenKind(pub u16);
